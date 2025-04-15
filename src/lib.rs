@@ -1,25 +1,33 @@
 use anyhow::{anyhow, Result};
-use byteorder::{LittleEndian, ReadBytesExt};
 use core::fmt;
-use enums::{EVENTLOG_TYPES, TCG_ALGORITHMS};
 use sha2::{Digest, Sha384};
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::u32;
 
 const RTMR_LENGTH_BY_BYTES: usize = 48;
 
 mod bios_eventlog;
 mod enums;
+mod tcg_algorithm;
+mod tcg_enum;
 
 pub use bios_eventlog::BiosEventlog;
 mod parser;
 pub mod read;
-use parser::parsers::blank::EvBlankParser;
-use parser::PARSER_MAP;
+mod utils;
+
+use crate::tcg_algorithm::TcgAlgorithm;
+use crate::tcg_enum::TcgEventType;
 
 #[derive(Clone)]
 pub struct Eventlog {
     pub log: Vec<EventlogEntry>,
+}
+
+#[derive(Clone)]
+pub struct Rtmrs {
+    pub map: HashMap<u32, Vec<u8>>,
 }
 
 impl fmt::Display for Eventlog {
@@ -29,8 +37,8 @@ impl fmt::Display for Eventlog {
             parsed_el = format!(
                 "{}\nEvent Entry:\n\tRTMR: {}\n\tEvent Type id: {}\n\tEvent Type: {}\n\tDigest Algorithm: {}\n\tDigest: {}\n\tEvent Desc: {}\n\tEvent Desc HEX: {}\n",
                 parsed_el,
-                event_entry.target_measurement_registry,
-                format!("0x{:08X}", event_entry.event_type_id),
+                event_entry.rtmr,
+                format!("0x{:08X}", event_entry.event_type as u32),
                 event_entry.event_type,
                 event_entry.digests[0].algorithm,
                 hex::encode(event_entry.digests[0].digest.clone()),
@@ -43,20 +51,10 @@ impl fmt::Display for Eventlog {
     }
 }
 
-fn parse_tag_event(event_type: &str, data: Vec<u8>) -> String {
-    let parser = PARSER_MAP
-        .get(event_type)
-        .map(|p| p.as_ref())
-        .unwrap_or(&EvBlankParser);
-
-    parser.parse_description(data)
-}
-
 #[derive(Clone)]
 pub struct EventlogEntry {
-    pub target_measurement_registry: u32,
-    pub event_type_id: u32,
-    pub event_type: String,
+    pub rtmr: u32,
+    pub event_type: TcgEventType,
     pub digests: Vec<ElDigest>,
     pub event_desc_hex: String,
     pub event_desc: String,
@@ -64,27 +62,32 @@ pub struct EventlogEntry {
 
 #[derive(Debug, Clone)]
 pub struct ElDigest {
-    pub algorithm: String,
+    pub algorithm: TcgAlgorithm,
     pub digest: Vec<u8>,
+}
+
+pub struct RegistryResult(pub HashMap<u32, Vec<u8>>);
+
+impl fmt::Display for RegistryResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, value) in &self.0 {
+            writeln!(f, "RTMR[{}]: {}", index, hex::encode(value))?;
+        }
+        Ok(())
+    }
 }
 
 impl Eventlog {
     pub fn replay_measurement_registry(&self) -> HashMap<u32, Vec<u8>> {
-        // result dictionary for classifying event logs by rtmr index
-        // the key is a integer, which represents rtmr index
-        // the value is a list of event log entries whose rtmr index is equal to its related key
         let mut event_logs_by_mr_index: HashMap<u32, Vec<EventlogEntry>> = HashMap::new();
 
         let mut result: HashMap<u32, Vec<u8>> = HashMap::new();
 
         for log_entry in self.log.iter() {
-            match event_logs_by_mr_index.get_mut(&log_entry.target_measurement_registry) {
+            match event_logs_by_mr_index.get_mut(&log_entry.rtmr) {
                 Some(logs) => logs.push(log_entry.clone()),
                 None => {
-                    event_logs_by_mr_index.insert(
-                        log_entry.target_measurement_registry,
-                        vec![log_entry.clone()],
-                    );
+                    event_logs_by_mr_index.insert(log_entry.rtmr, vec![log_entry.clone()]);
                 }
             }
         }
@@ -109,87 +112,124 @@ impl Eventlog {
 impl TryFrom<Vec<u8>> for Eventlog {
     type Error = anyhow::Error;
 
-    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(data: Vec<u8>) -> Result<Self> {
         let mut index = 0;
-        let mut event_log: Vec<EventlogEntry> = Vec::new();
-        let mut digest_size_map: HashMap<u16, u16> = HashMap::new();
+        let mut event_log = Vec::new();
+        let mut digest_size_map = HashMap::new();
 
-        while index < data.len() as usize {
-            let stop_flag = (&data[index..(index + 8)]).read_u64::<LittleEndian>()?;
-            let target_measurement_registry =
-                (&data[index..(index + 4)]).read_u32::<LittleEndian>()?;
-            index += 4;
-
-            let event_type_num = (&data[index..(index + 4)]).read_u32::<LittleEndian>()?;
-            index += 4;
-            let event_type = match EVENTLOG_TYPES.get(&event_type_num) {
-                Some(type_name) => type_name.to_string(),
-                None => format!("UNKNOWN_TYPE: {:x}", &event_type_num),
-            };
-
-            let event_type_id = event_type_num;
-            if event_type == "EV_NO_ACTION".to_string() {
-                index += 48;
-                let algo_number = (&data[index..(index + 4)]).read_u32::<LittleEndian>()?;
-                index += 4;
-                for _ in 0..algo_number {
-                    digest_size_map.insert(
-                        (&data[index..(index + 2)]).read_u16::<LittleEndian>()?,
-                        (&data[(index + 2)..(index + 4)]).read_u16::<LittleEndian>()?,
-                    );
-                    index += 4;
-                }
-                let vendor_size = data[index];
-                index += vendor_size as usize + 1;
-                continue;
-            }
-
-            if stop_flag == 0xFFFFFFFFFFFFFFFF || stop_flag == 0x0000000000000000 {
+        while index < data.len() {
+            let entry_opt;
+            (entry_opt, index) = parse_eventlog_entry(&data, index, &mut digest_size_map)?;
+            if let Some(entry) = entry_opt {
+                event_log.push(entry);
+            } else if index == 0 {
                 break;
             }
-
-            let digest_count = (&data[index..(index + 4)]).read_u32::<LittleEndian>()?;
-            index += 4;
-            let mut digests: Vec<ElDigest> = Vec::new();
-            for _ in 0..digest_count {
-                let digest_algo_num = (&data[index..(index + 2)]).read_u16::<LittleEndian>()?;
-                index += 2;
-                let algorithm = match TCG_ALGORITHMS.get(&digest_algo_num) {
-                    Some(digest_algo_name) => digest_algo_name.to_string(),
-                    None => format!("UNKNOWN_ALGORITHM: {:x}", &digest_algo_num),
-                };
-                let digest_size = digest_size_map
-                    .get(&digest_algo_num)
-                    .ok_or(anyhow!(
-                        "Internal Error: get digest size failed when parse eventlog entry, digest_algo_num: {:?}", &digest_algo_num
-                    ))?
-                    .to_owned() as usize;
-                let digest = data[index..(index + digest_size)].to_vec();
-                index += digest_size;
-                digests.push(ElDigest { algorithm, digest });
-            }
-
-            let event_desc_size = (&data[index..(index + 4)]).read_u32::<LittleEndian>()? as usize;
-            index += 4;
-            let event_desc_raw = data[index..(index + event_desc_size)].to_vec();
-            index += event_desc_size;
-
-            let event_desc_hex = hex::encode(event_desc_raw.clone());
-
-            let event_desc = parse_tag_event(&event_type, event_desc_raw.clone());
-
-            let eventlog_entry = EventlogEntry {
-                target_measurement_registry,
-                event_type_id,
-                event_type,
-                digests,
-                event_desc_hex,
-                event_desc,
-            };
-
-            event_log.push(eventlog_entry)
         }
 
         Ok(Eventlog { log: event_log })
     }
+}
+
+fn parse_eventlog_entry(
+    data: &[u8],
+    mut index: usize,
+    digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
+) -> Result<(Option<EventlogEntry>, usize)> {
+    let (stop_flag, _new_index) = utils::read_long(data, index)?;
+    if stop_flag == 0xFFFFFFFFFFFFFFFF || stop_flag == 0x0000000000000000 {
+        return Ok((None, 0));
+    }
+
+    let target_measurement_registry;
+    (target_measurement_registry, index) = utils::read_int(data, index)?;
+
+    let event_type_num;
+    (event_type_num, index) = utils::read_int(data, index)?;
+
+    let event_type = TcgEventType::try_from(event_type_num)
+        .map_err(|_| anyhow!("Unknown event type detected: {:#x}", event_type_num))?;
+
+    if event_type == TcgEventType::EvNoAction {
+        index = parse_digest_sizes(data, index, digest_size_map)?;
+        return Ok((None, index));
+    }
+
+    let digests;
+    (digests, index) = parse_digests(data, index, digest_size_map)?;
+
+    let event_desc_size;
+    (event_desc_size, index) = utils::read_int(data, index)?;
+    let event_desc_raw = data[index..(index + event_desc_size as usize)].to_vec();
+    index += event_desc_size as usize;
+
+    let event_desc_hex = hex::encode(&event_desc_raw);
+    let event_desc = event_type.get_parser().parse_description(event_desc_raw);
+
+    Ok((
+        Some(EventlogEntry {
+            rtmr: target_measurement_registry,
+            event_type,
+            digests,
+            event_desc_hex,
+            event_desc,
+        }),
+        index,
+    ))
+}
+
+fn parse_digest_sizes(
+    data: &[u8],
+    mut index: usize,
+    digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
+) -> Result<usize> {
+    index += 48;
+    let algo_number;
+    (algo_number, index) = utils::read_int(data, index)?;
+
+    for _ in 0..algo_number {
+        let algo_id;
+        (algo_id, index) = utils::read_short(data, index)?;
+        let size;
+        (size, index) = utils::read_short(data, index)?;
+
+        let algorithm = TcgAlgorithm::try_from(algo_id as u32)
+            .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
+
+        digest_size_map.insert(algorithm, size);
+    }
+
+    let vendor_size = data[index] as usize;
+    index += vendor_size + 1;
+    Ok(index)
+}
+
+fn parse_digests(
+    data: &[u8],
+    mut index: usize,
+    digest_size_map: &HashMap<TcgAlgorithm, u16>,
+) -> Result<(Vec<ElDigest>, usize)> {
+    let digest_count;
+    (digest_count, index) = utils::read_int(data, index)?;
+
+    let mut digests = Vec::new();
+    for _ in 0..digest_count {
+        let algo_id;
+        (algo_id, index) = utils::read_short(data, index)?;
+
+        let algorithm = TcgAlgorithm::try_from(algo_id as u32)
+            .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
+
+        let size = *digest_size_map
+            .get(&algorithm)
+            .ok_or_else(|| anyhow!("Missing digest size for algorithm: {:x}", algo_id))?
+            as usize;
+
+        let digest = data[index..index + size].to_vec();
+        index += size;
+
+        digests.push(ElDigest { algorithm, digest });
+    }
+
+    Ok((digests, index))
 }

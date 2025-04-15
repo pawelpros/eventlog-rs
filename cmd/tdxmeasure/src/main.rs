@@ -5,6 +5,7 @@ extern crate eventlog_rs;
 extern crate log;
 
 use std::convert::TryFrom;
+use eventlog_rs::RegistryResult;
 
 fn main() {
     env_logger::builder()
@@ -19,4 +20,5 @@ fn main() {
     let _replayed_rtmr = event_log.replay_measurement_registry();
 
     println!("{}", event_log);
+    println!("{}", RegistryResult(rtmrs));
 }
