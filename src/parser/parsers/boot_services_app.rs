@@ -1,3 +1,4 @@
+use byteorder::{ByteOrder, LittleEndian};
 use crate::parser::DescriptionParser;
 pub struct EvBootServicesAppParser;
 
@@ -48,13 +49,9 @@ fn get_nested_data(device_path_bytes: &[u8]) -> Option<String> {
 fn recover_string(vendor_data_raw: &[u8]) -> String {
     let device_path: Vec<u16> = vendor_data_raw
         .chunks(2)
-        .map(|chunk| u16::from_le_bytes(chunk.try_into().unwrap()))
+        .map(|chunk| LittleEndian::read_u16(chunk))
+        .take_while(|&x| x != 0)
         .collect();
 
-    let device_path_str: String = device_path
-        .iter()
-        .map(|&c| std::char::from_u32(c as u32).unwrap_or(char::default()))
-        .collect();
-
-    device_path_str
+    String::from_utf16(&device_path).expect("Could not convert data to string")
 }

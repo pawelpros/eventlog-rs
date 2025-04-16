@@ -9,8 +9,8 @@ const RTMR_LENGTH_BY_BYTES: usize = 48;
 
 mod bios_eventlog;
 mod enums;
-mod tcg_algorithm;
-mod tcg_enum;
+pub mod tcg_algorithm;
+pub mod tcg_enum;
 
 pub use bios_eventlog::BiosEventlog;
 mod parser;
@@ -23,11 +23,6 @@ use crate::tcg_enum::TcgEventType;
 #[derive(Clone)]
 pub struct Eventlog {
     pub log: Vec<EventlogEntry>,
-}
-
-#[derive(Clone)]
-pub struct Rtmrs {
-    pub map: HashMap<u32, Vec<u8>>,
 }
 
 impl fmt::Display for Eventlog {
@@ -51,7 +46,7 @@ impl fmt::Display for Eventlog {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct EventlogEntry {
     pub rtmr: u32,
     pub event_type: TcgEventType,
