@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use core::fmt;
-use sha2::Digest;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::u32;
