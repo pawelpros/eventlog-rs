@@ -1,18 +1,18 @@
 use anyhow::{anyhow, Result};
 use core::fmt;
-use sha2::{Digest, Sha384};
+use sha2::Digest;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::u32;
 
-const RTMR_LENGTH_BY_BYTES: usize = 48;
-
 mod bios_eventlog;
 mod enums;
+pub mod rtmr;
 pub mod tcg_algorithm;
 pub mod tcg_enum;
 
 pub use bios_eventlog::BiosEventlog;
+
 mod parser;
 pub mod read;
 mod utils;
@@ -59,49 +59,6 @@ pub struct EventlogEntry {
 pub struct ElDigest {
     pub algorithm: TcgAlgorithm,
     pub digest: Vec<u8>,
-}
-
-pub struct RegistryResult(pub HashMap<u32, Vec<u8>>);
-
-impl fmt::Display for RegistryResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (index, value) in &self.0 {
-            writeln!(f, "RTMR[{}]: {}", index, hex::encode(value))?;
-        }
-        Ok(())
-    }
-}
-
-impl Eventlog {
-    pub fn replay_measurement_registry(&self) -> HashMap<u32, Vec<u8>> {
-        let mut event_logs_by_mr_index: HashMap<u32, Vec<EventlogEntry>> = HashMap::new();
-
-        let mut result: HashMap<u32, Vec<u8>> = HashMap::new();
-
-        for log_entry in self.log.iter() {
-            match event_logs_by_mr_index.get_mut(&log_entry.rtmr) {
-                Some(logs) => logs.push(log_entry.clone()),
-                None => {
-                    event_logs_by_mr_index.insert(log_entry.rtmr, vec![log_entry.clone()]);
-                }
-            }
-        }
-
-        for (mr_index, log_set) in event_logs_by_mr_index.iter() {
-            let mut mr_value = [0; RTMR_LENGTH_BY_BYTES];
-
-            for log in log_set.iter() {
-                let digest = &log.digests[0].digest;
-                let mut sha384_algo = Sha384::new();
-                sha384_algo.update(&mr_value);
-                sha384_algo.update(digest.as_slice());
-                mr_value.copy_from_slice(sha384_algo.finalize().as_slice());
-            }
-            result.insert(mr_index.clone(), mr_value.to_vec());
-        }
-
-        result
-    }
 }
 
 impl TryFrom<Vec<u8>> for Eventlog {
