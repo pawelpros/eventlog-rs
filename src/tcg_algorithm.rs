@@ -1,6 +1,7 @@
 use std::fmt;
 
 use num_enum::TryFromPrimitive;
+use crate::utils;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Hash, Copy, PartialEq, Eq, TryFromPrimitive)]
@@ -14,23 +15,15 @@ pub enum TcgAlgorithm {
 }
 
 impl TcgAlgorithm {
-    fn variant_name(&self) -> String {
+    fn format_name(&self) -> String {
         let name = format!("{:?}", self);
 
-        let mut result = String::new();
-        for (i, ch) in name.chars().enumerate() {
-            if ch.is_uppercase() && i > 0 {
-                result.push('_');
-            }
-            result.push(ch.to_ascii_uppercase());
-        }
-
-        result
+        utils::format_name(name)
     }
 }
 
 impl fmt::Display for TcgAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.variant_name())
+        write!(f, "{}", self.format_name())
     }
 }

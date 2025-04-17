@@ -22,6 +22,18 @@ pub fn read_long(data: &[u8], index: usize) -> Result<(u64, usize)> {
     Ok((value, index + SIZE))
 }
 
+pub fn format_name(name: String) -> String {
+    let mut result = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_ascii_uppercase());
+    }
+
+    result
+}
+
 fn verify_len(data: &[u8], index: usize, size: usize) -> Result<()> {
     if index + size > data.len() {
         return Err(anyhow!(

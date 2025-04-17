@@ -3,6 +3,7 @@ use crate::parser::DescriptionParser;
 use std::fmt;
 
 use num_enum::TryFromPrimitive;
+use crate::utils;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
@@ -50,64 +51,35 @@ pub enum TcgEventType {
 impl TcgEventType {
     pub (crate) fn get_parser(&self) -> Box<dyn DescriptionParser> {
         match self {
-            // Self::EvPrebootCert => "EV_PREBOOT_CERT",
             Self::EvPostCode => Box::new(EvSimpleParser),
-            // Self::EvUnused => "EV_UNUSED",
-            // Self::EvNoAction => "EV_NO_ACTION",
             Self::EvSeparator => Box::new(EvBlankParser),
             Self::EvAction => Box::new(EvSimpleParser),
             Self::EvEventTag => Box::new(EvEventTagParser),
-            // Self::EvSCrtmContents => "EV_S_CRTM_CONTENTS",
-            // Self::EvSCrtmVersion => "EV_S_CRTM_VERSION",
-            // Self::EvCpuMicrocode => "EV_CPU_MICROCODE",
             Self::EvPlatformConfigFlags => Box::new(EvSimpleParser),
-            // Self::EvTableOfDevices => "EV_TABLE_OF_DEVICES",
             Self::EvCompactHash => Box::new(EvSimpleParser),
             Self::EvIpl => Box::new(EvSimpleParser),
-            // Self::EvIplPartitionData => "EV_IPL_PARTITION_DATA",
-            // Self::EvNonhostCode => "EV_NONHOST_CODE",
-            // Self::EvNonhostConfig => "EV_NONHOST_CONFIG",
-            // Self::EvNonhostInfo => "EV_NONHOST_INFO",
             Self::EvOmitBootDeviceEvents => Box::new(EvSimpleParser),
-
-            // Self::EvEfiEventBase => "EV_EFI_EVENT_BASE",
             Self::EvEfiVariableDriverConfig => Box::new(EvEfiVariableParser),
             Self::EvEfiVariableBoot => Box::new(EvEfiVariableParser),
             Self::EvEfiBootServicesApplication => Box::new(EvBootServicesAppParser),
-            // Self::EvEfiBootServicesDriver => "EV_EFI_BOOT_SERVICES_DRIVER",
-            // Self::EvEfiRuntimeServicesDriver => "EV_EFI_RUNTIME_SERVICES_DRIVER",
-            // Self::EvEfiGptEvent => "EV_EFI_GPT_EVENT",
             Self::EvEfiAction => Box::new(EvSimpleParser),
-            // Self::EvEfiPlatformFirmwareBlob => "EV_EFI_PLATFORM_FIRMWARE_BLOB",
-            // Self::EvEfiHandoffTables => "EV_EFI_HANDOFF_TABLES",
             Self::EvEfiPlatformFirmwareBlob2 => Box::new(EvHandoffTableParser),
             Self::EvEfiHandoffTables2 => Box::new(EvHandoffTableParser),
             Self::EvEfiVariableBoot2 => Box::new(EvEfiVariableParser),
-            // Self::EvEfiHcrtmEvent => "EV_EFI_HCRTM_EVENT",
             Self::EvEfiVariableAuthority => Box::new(EvEfiVariableParser),
-            // Self::EvEfiSpdmFirmwareBlob => "EV_EFI_SPDM_FIRMWARE_BLOB",
-            // Self::EvEfiSpdmFirmwareConfig => "EV_EFI_SPDM_FIRMWARE_CONFIG",
             _ => Box::new(EvBlankParser),
         }
     }
 
-    fn variant_name(&self) -> String {
+    fn format_name(&self) -> String {
         let name = format!("{:?}", self);
 
-        let mut result = String::new();
-        for (i, ch) in name.chars().enumerate() {
-            if ch.is_uppercase() && i > 0 {
-                result.push('_');
-            }
-            result.push(ch.to_ascii_uppercase());
-        }
-
-        result
+        utils::format_name(name)
     }
 }
 
 impl fmt::Display for TcgEventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.variant_name())
+        write!(f, "{}", self.format_name())
     }
 }
