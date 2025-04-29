@@ -13,10 +13,9 @@ impl DescriptionParser for EvBootServicesAppParser {
         let device_path_end =
             device_path_start + (length_of_device_path - device_path_end_header) as usize;
 
-        assert!(
-            data.len() >= device_path_end,
-            "Data too short for the device path"
-        );
+        if data.len() <= device_path_end {
+            return String::default();
+        }
 
         let device_path_bytes = &data[device_path_start..device_path_end];
 
