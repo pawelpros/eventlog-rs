@@ -29,7 +29,7 @@ impl fmt::Display for Eventlog {
         let mut parsed_el = String::default();
         for event_entry in self.log.clone() {
             parsed_el = format!(
-                "{}\nEvent Entry:\n\tRTMR: {}\n\tEvent Type id: {}\n\tEvent Type: {}\n\tDigest Algorithm: {}\n\tDigest: {}\n\tEvent Desc: {}\n\tEvent Desc HEX: {}\n",
+                "{}\nEvent Entry:\n\tRTMR: {}\n\tEvent Type id: {}\n\tEvent Type: {}\n\tDigest Algorithm: {}\n\tDigest: {}\n\tEvent Desc: {}\n\tEvent Desc HEX: {}\n\tEvent details:\n\t{}\n",
                 parsed_el,
                 event_entry.rtmr,
                 format!("0x{:08X}", event_entry.event_type as u32),
@@ -37,7 +37,8 @@ impl fmt::Display for Eventlog {
                 event_entry.digests[0].algorithm,
                 hex::encode(event_entry.digests[0].digest.clone()),
                 event_entry.event_desc.clone(),
-                event_entry.event_desc_hex.clone()
+                event_entry.event_desc_hex.clone(),
+                event_entry.data.join("\n\t")
             );
         }
 
@@ -52,6 +53,7 @@ pub struct EventlogEntry {
     pub digests: Vec<ElDigest>,
     pub event_desc_hex: String,
     pub event_desc: String,
+    pub data: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +117,7 @@ fn parse_eventlog_entry(
     index += event_desc_size as usize;
 
     let event_desc_hex = hex::encode(&event_desc_raw);
-    let event_desc = event_type.get_parser().parse_description(event_desc_raw);
+    let event_result = event_type.get_parser().parse_description(event_desc_raw);
 
     Ok((
         Some(EventlogEntry {
@@ -123,7 +125,8 @@ fn parse_eventlog_entry(
             event_type,
             digests,
             event_desc_hex,
-            event_desc,
+            event_desc: event_result.event_desc,
+            data: event_result.data
         }),
         index,
     ))
