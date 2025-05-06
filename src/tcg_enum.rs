@@ -1,9 +1,24 @@
 use crate::parser::parsers::*;
 use crate::parser::DescriptionParser;
-use std::fmt;
-
 use num_enum::TryFromPrimitive;
-use crate::utils;
+use serde::Serialize;
+
+#[repr(u32)]
+#[derive(Debug, Clone, Hash, Copy, PartialEq, Eq, TryFromPrimitive, Serialize)]
+pub enum TcgAlgorithm {
+    #[serde(rename = "RSA")]
+    Rsa = 0x1,
+    #[serde(rename = "TDES")]
+    Tdes = 0x3,
+    #[serde(rename = "SHA-1")]
+    Sha1 = 0x4,
+    #[serde(rename = "SHA-256")]
+    Sha256 = 0xB,
+    #[serde(rename = "SHA-384")]
+    Sha384 = 0xC,
+    #[serde(rename = "SHA-512")]
+    Sha512 = 0xD,
+}
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
@@ -49,7 +64,7 @@ pub enum TcgEventType {
 }
 
 impl TcgEventType {
-    pub (crate) fn get_parser(&self) -> Box<dyn DescriptionParser> {
+    pub(crate) fn get_parser(&self) -> Box<dyn DescriptionParser> {
         match self {
             Self::EvPostCode => Box::new(EvSimpleParser),
             Self::EvSeparator => Box::new(EvBlankParser),
@@ -63,23 +78,25 @@ impl TcgEventType {
             Self::EvEfiVariableBoot => Box::new(EvEfiVariableParser),
             Self::EvEfiBootServicesApplication => Box::new(EvBootServicesAppParser),
             Self::EvEfiAction => Box::new(EvSimpleParser),
-            Self::EvEfiPlatformFirmwareBlob2 => Box::new(EvHandoffTableParser),
-            Self::EvEfiHandoffTables2 => Box::new(EvHandoffTableParser),
+            Self::EvEfiPlatformFirmwareBlob2 => Box::new(SimpleStringParser),
+            Self::EvEfiHandoffTables2 => Box::new(SimpleStringParser),
             Self::EvEfiVariableBoot2 => Box::new(EvEfiVariableParser),
             Self::EvEfiVariableAuthority => Box::new(EvEfiVariableParser),
             _ => Box::new(EvBlankParser),
         }
     }
 
-    fn format_name(&self) -> String {
+    pub fn format_name(&self) -> String {
         let name = format!("{:?}", self);
 
-        utils::format_name(name)
-    }
-}
+        let mut result = String::new();
+        for (i, ch) in name.chars().enumerate() {
+            if ch.is_uppercase() && i > 0 {
+                result.push('_');
+            }
+            result.push(ch.to_ascii_uppercase());
+        }
 
-impl fmt::Display for TcgEventType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.format_name())
+        result
     }
 }

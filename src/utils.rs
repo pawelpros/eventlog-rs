@@ -1,47 +1,36 @@
-use byteorder::{ByteOrder, LittleEndian};
 use anyhow::{anyhow, Result};
+use byteorder::{ByteOrder, LittleEndian};
 
-pub fn read_short(data: &[u8], index: usize) -> Result<(u16,usize)> {
-    const SIZE: usize = 2;
-    verify_len(data, index, SIZE)?;
-    let value = LittleEndian::read_u16(&data[index..index + SIZE]);
-    Ok((value, index + SIZE))
-}
-
-pub fn read_int(data: &[u8], index: usize) -> Result<(u32, usize)> {
-    const SIZE: usize = 4;
-    verify_len(data, index, SIZE)?;
-    let value = LittleEndian::read_u32(&data[index..index + SIZE]);
-    Ok((value, index + SIZE))
-}
-
-pub fn read_long(data: &[u8], index: usize) -> Result<(u64, usize)> {
-    const SIZE: usize = 8;
-    verify_len(data, index, SIZE)?;
-    let value = LittleEndian::read_u64(&data[index..index + SIZE]);
-    Ok((value, index + SIZE))
-}
-
-pub fn format_name(name: String) -> String {
-    let mut result = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_uppercase());
+pub fn get_next_bytes<'a>(
+    data: &'a [u8],
+    index: &mut usize,
+    count: usize,
+) -> Result<&'a [u8], anyhow::Error> {
+    if *index + count > data.len() {
+        return Err(anyhow!(format!(
+            "Out of bounds: trying to read {} bytes at index {}, but only {} bytes available.",
+            count,
+            *index,
+            data.len() - *index
+        )));
     }
 
-    result
+    let slice = &data[*index..*index + count];
+    *index += count;
+    Ok(slice)
 }
 
-fn verify_len(data: &[u8], index: usize, size: usize) -> Result<()> {
-    if index + size > data.len() {
-        return Err(anyhow!(
-            "Cannot read data at index {}: not enough bytes (needed {}, have {}).",
-            index,
-            size,
-            data.len() - index
-        ));
-    }
-    Ok(())
+pub fn read_u16_le(data: &[u8], index: &mut usize) -> Result<u16, anyhow::Error> {
+    let bytes = get_next_bytes(data, index, size_of::<u16>())?;
+    Ok(LittleEndian::read_u16(bytes))
+}
+
+pub fn read_u32_le(data: &[u8], index: &mut usize) -> Result<u32, anyhow::Error> {
+    let bytes = get_next_bytes(data, index, size_of::<u32>())?;
+    Ok(LittleEndian::read_u32(bytes))
+}
+
+pub fn read_u64_le(data: &[u8], index: &mut usize) -> Result<u64, anyhow::Error> {
+    let bytes = get_next_bytes(data, index, size_of::<u64>())?;
+    Ok(LittleEndian::read_u64(bytes))
 }

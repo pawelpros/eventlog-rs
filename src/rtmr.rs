@@ -58,10 +58,10 @@ fn replay_measurement_registry(data: Eventlog) -> HashMap<u32, Vec<u8>> {
     let mut result: HashMap<u32, Vec<u8>> = HashMap::new();
 
     for log_entry in data.log.iter() {
-        match event_logs_by_mr_index.get_mut(&log_entry.rtmr) {
+        match event_logs_by_mr_index.get_mut(&log_entry.index) {
             Some(logs) => logs.push(log_entry.clone()),
             None => {
-                event_logs_by_mr_index.insert(log_entry.rtmr, vec![log_entry.clone()]);
+                event_logs_by_mr_index.insert(log_entry.index, vec![log_entry.clone()]);
             }
         }
     }

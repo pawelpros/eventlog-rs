@@ -1,10 +1,11 @@
-use crate::parser::{DescriptionParser, ParseResult};
-
+use crate::parser::{DescriptionParser};
+use crate::EventDetails;
+use anyhow::{Error, Result};
 pub struct EvSimpleParser;
 
 impl DescriptionParser for EvSimpleParser {
-    fn parse_description(&self, data: Vec<u8>) -> ParseResult {
+    fn parse_description(&self, data: Vec<u8>) -> Result<EventDetails, Error> {
         let event_desc = String::from_utf8(data).unwrap_or(String::default());
-        ParseResult {event_desc, data: vec![]}
+        Ok(EventDetails::from_string(event_desc))
     }
 }

@@ -1,65 +1,133 @@
 use anyhow::{anyhow, Result};
-use core::fmt;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::ser::{SerializeSeq, SerializeStruct};
+use serde::{Serialize, Serializer};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::u32;
 
-mod bios_eventlog;
-mod enums;
 pub mod rtmr;
-pub mod tcg_algorithm;
 pub mod tcg_enum;
 
-pub use bios_eventlog::BiosEventlog;
-
 mod parser;
-pub mod read;
 mod utils;
 
-use crate::tcg_algorithm::TcgAlgorithm;
+use crate::tcg_enum::TcgAlgorithm;
 use crate::tcg_enum::TcgEventType;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Eventlog {
+    #[serde(rename = "uefi_event_logs")]
     pub log: Vec<EventlogEntry>,
-}
-
-impl fmt::Display for Eventlog {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut parsed_el = String::default();
-        for event_entry in self.log.clone() {
-            parsed_el = format!(
-                "{}\nEvent Entry:\n\tRTMR: {}\n\tEvent Type id: {}\n\tEvent Type: {}\n\tDigest Algorithm: {}\n\tDigest: {}\n\tEvent Desc: {}\n\tEvent Desc HEX: {}\n\tEvent details:\n\t{}\n",
-                parsed_el,
-                event_entry.rtmr,
-                format!("0x{:08X}", event_entry.event_type as u32),
-                event_entry.event_type,
-                event_entry.digests[0].algorithm,
-                hex::encode(event_entry.digests[0].digest.clone()),
-                event_entry.event_desc.clone(),
-                event_entry.event_desc_hex.clone(),
-                event_entry.data.join("\n\t")
-            );
-        }
-
-        write!(f, "{parsed_el}")
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct EventlogEntry {
-    pub rtmr: u32,
+    pub index: u32,
     pub event_type: TcgEventType,
     pub digests: Vec<ElDigest>,
-    pub event_desc_hex: String,
-    pub event_desc: String,
-    pub data: Vec<String>,
+    pub event: String,
+    pub details: EventDetails,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+pub struct EventDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unicode_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unicode_name_length: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_data_length: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_name: Option<String>,
+    #[serde(
+        serialize_with = "serialize_json_string_vec",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub data: Option<Vec<String>>, // TODO NOT FULLY IMPLEMENTED AS ITA
+}
+
+impl EventDetails {
+    pub fn from_string(s: String) -> Self {
+        Self {
+            string: Some(s),
+            unicode_name: None,
+            unicode_name_length: None,
+            variable_data: None,
+            variable_data_length: None,
+            variable_name: None,
+            data: None,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            string: None,
+            unicode_name: None,
+            unicode_name_length: None,
+            variable_data: None,
+            variable_data_length: None,
+            variable_name: None,
+            data: None,
+        }
+    }
+}
+
+impl Serialize for EventlogEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("EventlogEntry", 6)?;
+        state.serialize_field("details", &self.details)?;
+        state.serialize_field("digests", &self.digests)?;
+        state.serialize_field("event", &self.event)?;
+        state.serialize_field("index", &self.index)?;
+        // state.serialize_field("type", &format!("0x{:08X}", self.event_type as u32))?; // TODO ITA DIFFERENCE
+        state.serialize_field("type", &(self.event_type as u32))?;
+        state.serialize_field("type_name", &self.event_type.format_name())?;
+        state.end()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ElDigest {
-    pub algorithm: TcgAlgorithm,
+    pub alg: TcgAlgorithm,
+    #[serde(serialize_with = "serialize_digest_as_hex")]
     pub digest: Vec<u8>,
+}
+
+fn serialize_digest_as_hex<S>(digest: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&hex::encode(digest))
+}
+
+pub fn serialize_json_string_vec<S>(
+    vec: &Option<Vec<String>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match vec {
+        Some(inner_vec) => {
+            let mut seq = serializer.serialize_seq(Some(inner_vec.len()))?;
+            for json_str in inner_vec {
+                let json_value: Value =
+                    serde_json::from_str(json_str).map_err(serde::ser::Error::custom)?;
+                seq.serialize_element(&json_value)?;
+            }
+            seq.end()
+        }
+        None => serializer.serialize_none(),
+    }
 }
 
 impl TryFrom<Vec<u8>> for Eventlog {
@@ -89,16 +157,15 @@ fn parse_eventlog_entry(
     mut index: usize,
     digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
 ) -> Result<(Option<EventlogEntry>, usize)> {
-    let (stop_flag, _new_index) = utils::read_long(data, index)?;
+    let stop_flag = utils::read_u64_le(data, &mut index)?;
+    index -= size_of::<u64>();
     if stop_flag == 0xFFFFFFFFFFFFFFFF || stop_flag == 0x0000000000000000 {
         return Ok((None, 0));
     }
 
-    let target_measurement_registry;
-    (target_measurement_registry, index) = utils::read_int(data, index)?;
+    let target_measurement_registry = utils::read_u32_le(data, &mut index)?;
 
-    let event_type_num;
-    (event_type_num, index) = utils::read_int(data, index)?;
+    let event_type_num = utils::read_u32_le(data, &mut index)?;
 
     let event_type = TcgEventType::try_from(event_type_num)
         .map_err(|_| anyhow!("Unknown event type detected: {:#x}", event_type_num))?;
@@ -111,22 +178,21 @@ fn parse_eventlog_entry(
     let digests;
     (digests, index) = parse_digests(data, index, digest_size_map)?;
 
-    let event_desc_size;
-    (event_desc_size, index) = utils::read_int(data, index)?;
+    let event_desc_size = utils::read_u32_le(data, &mut index)?;
     let event_desc_raw = data[index..(index + event_desc_size as usize)].to_vec();
     index += event_desc_size as usize;
 
-    let event_desc_hex = hex::encode(&event_desc_raw);
-    let event_result = event_type.get_parser().parse_description(event_desc_raw);
+    let event = STANDARD.encode(&event_desc_raw); // TODO USE THIS ONE
+                                                  // let event = hex::encode(&event_desc_raw);
+    let event_result = event_type.get_parser().parse_description(event_desc_raw)?;
 
     Ok((
         Some(EventlogEntry {
-            rtmr: target_measurement_registry,
+            index: target_measurement_registry,
             event_type,
             digests,
-            event_desc_hex,
-            event_desc: event_result.event_desc,
-            data: event_result.data
+            event,
+            details: event_result,
         }),
         index,
     ))
@@ -138,14 +204,11 @@ fn parse_digest_sizes(
     digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
 ) -> Result<usize> {
     index += 48;
-    let algo_number;
-    (algo_number, index) = utils::read_int(data, index)?;
+    let algo_number = utils::read_u32_le(data, &mut index)?;
 
     for _ in 0..algo_number {
-        let algo_id;
-        (algo_id, index) = utils::read_short(data, index)?;
-        let size;
-        (size, index) = utils::read_short(data, index)?;
+        let algo_id = utils::read_u16_le(data, &mut index)?;
+        let size = utils::read_u16_le(data, &mut index)?;
 
         let algorithm = TcgAlgorithm::try_from(algo_id as u32)
             .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
@@ -163,13 +226,12 @@ fn parse_digests(
     mut index: usize,
     digest_size_map: &HashMap<TcgAlgorithm, u16>,
 ) -> Result<(Vec<ElDigest>, usize)> {
-    let digest_count;
-    (digest_count, index) = utils::read_int(data, index)?;
+    let digest_count = utils::read_u32_le(data, &mut index)?;
 
     let mut digests = Vec::new();
     for _ in 0..digest_count {
         let algo_id;
-        (algo_id, index) = utils::read_short(data, index)?;
+        algo_id = utils::read_u16_le(data, &mut index)?;
 
         let algorithm = TcgAlgorithm::try_from(algo_id as u32)
             .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
@@ -182,7 +244,10 @@ fn parse_digests(
         let digest = data[index..index + size].to_vec();
         index += size;
 
-        digests.push(ElDigest { algorithm, digest });
+        digests.push(ElDigest {
+            alg: algorithm,
+            digest,
+        });
     }
 
     Ok((digests, index))
