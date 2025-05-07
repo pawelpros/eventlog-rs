@@ -2,7 +2,7 @@ use std::fs;
 extern crate eventlog_rs;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::convert::TryFrom;
-use eventlog_rs::RegistryResult;
+use eventlog_rs::rtmr::Rtmr;
 
 fn main() {
     env_logger::builder()
@@ -11,11 +11,11 @@ fn main() {
 
     // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_ovmf".to_string());
     // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_grub".to_string());
-    // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data".to_string());
+    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data".to_string());
     // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/ccel_test2.bin".to_string());
     //
     // from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel.b64".to_string());
-    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gcp_ccel.b64".to_string());
+    // from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gcp_ccel.b64".to_string());
 }
 
 fn from_base64(path: String) {
@@ -37,8 +37,8 @@ fn from_file(path: String) {
     let data = fs::read(path).unwrap();
 
     let event_log = eventlog_rs::Eventlog::try_from(data).unwrap();
-    let _replayed_rtmr = event_log.replay_measurement_registry();
-
-    println!("{}", event_log);
-    println!("{}", RegistryResult(rtmrs));
+    let rtmrs = Rtmr::try_from(event_log.clone()).unwrap();
+    let json = serde_json::to_string_pretty(&event_log).unwrap();
+    println!("{}", json);
+    println!("{}", rtmrs);
 }
