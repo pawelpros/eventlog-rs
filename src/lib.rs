@@ -5,7 +5,6 @@ use serde::{Serialize, Serializer};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::u32;
 
 pub mod rtmr;
 pub mod tcg_enum;
@@ -230,8 +229,7 @@ fn parse_digests(
 
     let mut digests = Vec::new();
     for _ in 0..digest_count {
-        let algo_id;
-        algo_id = utils::read_u16_le(data, &mut index)?;
+        let algo_id = utils::read_u16_le(data, &mut index)?;
 
         let algorithm = TcgAlgorithm::try_from(algo_id as u32)
             .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
