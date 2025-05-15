@@ -9,13 +9,14 @@ fn main() {
         .filter(None, log::LevelFilter::Info)
         .init();
 
-    // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_ovmf".to_string());
-    // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_grub".to_string());
+    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_ovmf".to_string());
+    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_grub".to_string());
     from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data".to_string());
-    // from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/ccel_test2.bin".to_string());
-    //
-    // from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel.b64".to_string());
-    // from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gcp_ccel.b64".to_string());
+    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/ccel_test2.bin".to_string());
+
+    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel.b64".to_string());
+    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gcp_ccel.b64".to_string());
+    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel_14052025.b64".to_string());
 }
 
 fn from_base64(path: String) {

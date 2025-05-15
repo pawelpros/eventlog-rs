@@ -137,6 +137,8 @@ impl TryFrom<Vec<u8>> for Eventlog {
         let mut event_log = Vec::new();
         let mut digest_size_map = HashMap::new();
 
+        parse_initial_entry(&data, &mut index, &mut digest_size_map)?;
+
         while index < data.len() {
             let entry_opt;
             (entry_opt, index) = parse_eventlog_entry(&data, index, &mut digest_size_map)?;
@@ -149,6 +151,31 @@ impl TryFrom<Vec<u8>> for Eventlog {
 
         Ok(Eventlog { log: event_log })
     }
+}
+
+fn parse_initial_entry(
+    data: &[u8],
+    mut index: &mut usize,
+    digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
+) -> Result<()> {
+    utils::read_u32_le(data, &mut index)?;
+    let event_type_num = utils::read_u32_le(data, &mut index)?;
+
+    let event_type = TcgEventType::try_from(event_type_num)
+        .map_err(|_| anyhow!("Unknown event type detected: {:#x}", event_type_num))?;
+
+    utils::get_next_bytes(data, &mut index, 20)?;
+    let event_data_size = utils::read_u32_le(data, &mut index)?;
+
+    if TcgEventType::EvNoAction == event_type {
+        let digest_data = utils::get_next_bytes(data, &mut index, event_data_size as usize)?;
+        let actual_size = parse_digest_sizes(digest_data, digest_size_map)?;
+        if actual_size != event_data_size as usize {
+            return Err(anyhow!("Unexpected data size consumed for detecting digests"));
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_eventlog_entry(
@@ -169,11 +196,6 @@ fn parse_eventlog_entry(
     let event_type = TcgEventType::try_from(event_type_num)
         .map_err(|_| anyhow!("Unknown event type detected: {:#x}", event_type_num))?;
 
-    if event_type == TcgEventType::EvNoAction {
-        index = parse_digest_sizes(data, index, digest_size_map)?;
-        return Ok((None, index));
-    }
-
     let digests;
     (digests, index) = parse_digests(data, index, digest_size_map)?;
 
@@ -182,7 +204,7 @@ fn parse_eventlog_entry(
     index += event_desc_size as usize;
 
     let event = STANDARD.encode(&event_desc_raw); // TODO USE THIS ONE
-                                                  // let event = hex::encode(&event_desc_raw);
+    // let event = hex::encode(&event_desc_raw);
     let event_result = event_type.get_parser().parse_description(event_desc_raw)?;
 
     Ok((
@@ -199,15 +221,14 @@ fn parse_eventlog_entry(
 
 fn parse_digest_sizes(
     data: &[u8],
-    mut index: usize,
     digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
 ) -> Result<usize> {
-    index += 48;
-    let algo_number = utils::read_u32_le(data, &mut index)?;
+    let mut struct_index = 24;
+    let algo_number = utils::read_u32_le(data, &mut struct_index)?;
 
     for _ in 0..algo_number {
-        let algo_id = utils::read_u16_le(data, &mut index)?;
-        let size = utils::read_u16_le(data, &mut index)?;
+        let algo_id = utils::read_u16_le(data, &mut struct_index)?;
+        let size = utils::read_u16_le(data, &mut struct_index)?;
 
         let algorithm = TcgAlgorithm::try_from(algo_id as u32)
             .map_err(|_| anyhow!("Unknown algorithm type detected: {:x}", algo_id))?;
@@ -215,9 +236,9 @@ fn parse_digest_sizes(
         digest_size_map.insert(algorithm, size);
     }
 
-    let vendor_size = data[index] as usize;
-    index += vendor_size + 1;
-    Ok(index)
+    let vendor_size = data[struct_index] as usize;
+    struct_index += vendor_size + 1;
+    Ok(struct_index)
 }
 
 fn parse_digests(
