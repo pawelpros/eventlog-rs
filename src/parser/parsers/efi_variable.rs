@@ -16,12 +16,12 @@ impl DescriptionParser for EvEfiVariableParser {
         let description_bytes =
             utils::get_next_bytes(&data, &mut index, uname_length as usize * 2)?;
 
-        let unicode_name = String::from_utf8(description_bytes.to_vec())?
-            .replace('\0', "");
+        let unicode_name = String::from_utf8(description_bytes.to_vec())?.replace('\0', "");
 
         let mut variable_data = "".to_string();
         if var_data_length > 0 {
-            let variable_data_bytes = utils::get_next_bytes(&data, &mut index, var_data_length as usize)?;
+            let variable_data_bytes =
+                utils::get_next_bytes(&data, &mut index, var_data_length as usize)?;
             variable_data = STANDARD.encode(variable_data_bytes);
         }
 
@@ -32,6 +32,7 @@ impl DescriptionParser for EvEfiVariableParser {
             variable_data: Some(variable_data),
             variable_data_length: Some(var_data_length),
             variable_name: Some(format_guid(guid)),
+            device_paths: None,
             data: None,
         })
     }
@@ -39,11 +40,11 @@ impl DescriptionParser for EvEfiVariableParser {
 
 fn format_guid(guid: &[u8]) -> String {
     format!(
-        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        guid[0], guid[1], guid[2], guid[3],
-        guid[4], guid[5],
-        guid[6], guid[7],
-        guid[8], guid[9],
-        guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]
+        "{}-{}-{}-{}-{}",
+        hex::encode(&guid[0..4]),
+        hex::encode(&guid[4..6]),
+        hex::encode(&guid[6..8]),
+        hex::encode(&guid[8..10]),
+        hex::encode(&guid[10..16])
     )
 }

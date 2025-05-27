@@ -147,7 +147,7 @@ impl TcgEventType {
         }
     }
 
-    pub fn format_name(&self) -> String {
+    pub(crate) fn format_name(&self) -> String {
         let name = format!("{:?}", self);
 
         let mut result = String::new();

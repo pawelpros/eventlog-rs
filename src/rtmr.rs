@@ -1,83 +1,93 @@
-use crate::{Eventlog, EventlogEntry};
-use core::fmt;
-use sha2::{Digest, Sha384};
+use crate::tcg_enum::TcgAlgorithm;
+use crate::CcEventLog;
+use anyhow::bail;
+use anyhow::*;
+use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::result::Result::Ok;
 
 const RTMR_LENGTH_BY_BYTES: usize = 48;
+const CHECK_RTMR_LIMIT: usize = 3;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Rtmr {
-    pub rtmr0: [u8; RTMR_LENGTH_BY_BYTES],
-    pub rtmr1: [u8; RTMR_LENGTH_BY_BYTES],
-    pub rtmr2: [u8; RTMR_LENGTH_BY_BYTES],
-    pub rtmr3: [u8; RTMR_LENGTH_BY_BYTES],
+    pub data: [Vec<u8>; 4],
 }
 
-impl fmt::Display for Rtmr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "RTMR[0]: {}", hex::encode(self.rtmr0))?;
-        writeln!(f, "RTMR[1]: {}", hex::encode(self.rtmr1))?;
-        writeln!(f, "RTMR[2]: {}", hex::encode(self.rtmr2))?;
-        writeln!(f, "RTMR[3]: {}", hex::encode(self.rtmr3))?;
+impl Rtmr {
+    pub fn integrity_check(&self, rtmr_from_quote: [Vec<u8>; 4]) -> Result<()> {
+        for index in 0..CHECK_RTMR_LIMIT {
+            let ccel_value = &self.data[index];
+            let quote_value = &rtmr_from_quote[index];
+            if ccel_value != quote_value {
+                bail!(
+                    "CCEL eventlog does not pass RTMR [{}] check. CCEL value: {}, Quote value: {}",
+                    index,
+                    hex::encode(ccel_value),
+                    hex::encode(quote_value)
+                );
+            }
+        }
+
         Ok(())
     }
 }
 
-impl TryFrom<Eventlog> for Rtmr {
+impl TryFrom<CcEventLog> for Rtmr {
     type Error = anyhow::Error;
 
-    fn try_from(data: Eventlog) -> anyhow::Result<Self> {
-        let mr_map = replay_measurement_registry(data);
+    fn try_from(data: CcEventLog) -> anyhow::Result<Self> {
+        let mut result: HashMap<u32, [u8; RTMR_LENGTH_BY_BYTES]> = HashMap::new();
 
-        let mr = Rtmr {
-            rtmr0: mr_map
-                .get(&1)
-                .unwrap_or(&Vec::from([0u8; RTMR_LENGTH_BY_BYTES]))[0..RTMR_LENGTH_BY_BYTES]
-                .try_into()?,
-            rtmr1: mr_map
-                .get(&2)
-                .unwrap_or(&Vec::from([0u8; RTMR_LENGTH_BY_BYTES]))[0..RTMR_LENGTH_BY_BYTES]
-                .try_into()?,
-            rtmr2: mr_map
-                .get(&3)
-                .unwrap_or(&Vec::from([0u8; RTMR_LENGTH_BY_BYTES]))[0..RTMR_LENGTH_BY_BYTES]
-                .try_into()?,
-            rtmr3: mr_map
-                .get(&4)
-                .unwrap_or(&Vec::from([0u8; RTMR_LENGTH_BY_BYTES]))[0..RTMR_LENGTH_BY_BYTES]
-                .try_into()?,
-        };
+        for entry in data.log.into_iter() {
+            let digest = &entry.digests[0].digest;
 
-        Ok(mr)
-    }
-}
+            let mr_value = result
+                .entry(entry.index)
+                .or_insert([0u8; RTMR_LENGTH_BY_BYTES]);
 
-fn replay_measurement_registry(data: Eventlog) -> HashMap<u32, Vec<u8>> {
-    let mut event_logs_by_mr_index: HashMap<u32, Vec<EventlogEntry>> = HashMap::new();
+            let hash = accumulate_hash(
+                entry.digests[0].alg,
+                mr_value.clone().to_vec(),
+                digest.as_slice(),
+            )?;
 
-    let mut result: HashMap<u32, Vec<u8>> = HashMap::new();
+            mr_value.copy_from_slice(&hash);
+        }
 
-    for log_entry in data.log.iter() {
-        match event_logs_by_mr_index.get_mut(&log_entry.index) {
-            Some(logs) => logs.push(log_entry.clone()),
-            None => {
-                event_logs_by_mr_index.insert(log_entry.index, vec![log_entry.clone()]);
+        let mut data: [Vec<u8>; 4] = [
+            vec![0u8; RTMR_LENGTH_BY_BYTES],
+            vec![0u8; RTMR_LENGTH_BY_BYTES],
+            vec![0u8; RTMR_LENGTH_BY_BYTES],
+            vec![0u8; RTMR_LENGTH_BY_BYTES],
+        ];
+
+        for index in 1..5 {
+            if let Some(value) = result.get(&index) {
+                data[index as usize - 1] = value.to_vec();
             }
         }
+
+        Ok(Rtmr { data })
     }
-
-    for (mr_index, log_set) in event_logs_by_mr_index.iter() {
-        let mut mr_value = [0; RTMR_LENGTH_BY_BYTES];
-
-        for log in log_set.iter() {
-            let digest = &log.digests[0].digest;
-            let mut sha384_algo = Sha384::new();
-            sha384_algo.update(mr_value);
-            sha384_algo.update(digest.as_slice());
-            mr_value.copy_from_slice(sha384_algo.finalize().as_slice());
-        }
-        result.insert(*mr_index, mr_value.to_vec());
-    }
-
-    result
 }
+
+fn accumulate_hash(alg: TcgAlgorithm, materials: Vec<u8>, digest: &[u8]) -> Result<Vec<u8>> {
+    let result = match alg {
+        TcgAlgorithm::Sha256 => hash_with::<Sha256>(&materials, digest),
+        TcgAlgorithm::Sha384 => hash_with::<Sha384>(&materials, digest),
+        TcgAlgorithm::Sha512 => hash_with::<Sha512>(&materials, digest),
+        _ => bail!("Unsupported Hash algorithm {:?}", alg),
+    };
+
+    Ok(result)
+}
+
+fn hash_with<D: Digest + Default>(materials: &[u8], digest: &[u8]) -> Vec<u8> {
+    let mut hasher = D::default();
+    hasher.update(materials);
+    hasher.update(digest);
+    hasher.finalize().to_vec()
+}
+

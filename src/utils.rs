@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use byteorder::{ByteOrder, LittleEndian};
 
-pub fn get_next_bytes<'a>(
+pub(crate) fn get_next_bytes<'a>(
     data: &'a [u8],
     index: &mut usize,
     count: usize,
@@ -20,17 +20,17 @@ pub fn get_next_bytes<'a>(
     Ok(slice)
 }
 
-pub fn read_u16_le(data: &[u8], index: &mut usize) -> Result<u16, anyhow::Error> {
+pub(crate) fn read_u16_le(data: &[u8], index: &mut usize) -> Result<u16, anyhow::Error> {
     let bytes = get_next_bytes(data, index, size_of::<u16>())?;
     Ok(LittleEndian::read_u16(bytes))
 }
 
-pub fn read_u32_le(data: &[u8], index: &mut usize) -> Result<u32, anyhow::Error> {
+pub(crate) fn read_u32_le(data: &[u8], index: &mut usize) -> Result<u32, anyhow::Error> {
     let bytes = get_next_bytes(data, index, size_of::<u32>())?;
     Ok(LittleEndian::read_u32(bytes))
 }
 
-pub fn read_u64_le(data: &[u8], index: &mut usize) -> Result<u64, anyhow::Error> {
+pub(crate) fn read_u64_le(data: &[u8], index: &mut usize) -> Result<u64, anyhow::Error> {
     let bytes = get_next_bytes(data, index, size_of::<u64>())?;
     Ok(LittleEndian::read_u64(bytes))
 }

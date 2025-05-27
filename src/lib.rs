@@ -16,7 +16,7 @@ use crate::tcg_enum::TcgAlgorithm;
 use crate::tcg_enum::TcgEventType;
 
 #[derive(Clone, Serialize)]
-pub struct Eventlog {
+pub struct CcEventLog {
     #[serde(rename = "uefi_event_logs")]
     pub log: Vec<EventlogEntry>,
 }
@@ -44,11 +44,13 @@ pub struct EventDetails {
     pub variable_data_length: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_paths: Option<Vec<String>>,
     #[serde(
         serialize_with = "serialize_json_string_vec",
         skip_serializing_if = "Option::is_none"
     )]
-    pub data: Option<Vec<String>>, // TODO NOT FULLY IMPLEMENTED AS ITA
+    pub data: Option<Vec<String>>,
 }
 
 impl EventDetails {
@@ -60,6 +62,7 @@ impl EventDetails {
             variable_data: None,
             variable_data_length: None,
             variable_name: None,
+            device_paths: None,
             data: None,
         }
     }
@@ -72,6 +75,7 @@ impl EventDetails {
             variable_data: None,
             variable_data_length: None,
             variable_name: None,
+            device_paths: None,
             data: None,
         }
     }
@@ -87,8 +91,7 @@ impl Serialize for EventlogEntry {
         state.serialize_field("digests", &self.digests)?;
         state.serialize_field("event", &self.event)?;
         state.serialize_field("index", &self.index)?;
-        // state.serialize_field("type", &format!("0x{:08X}", self.event_type as u32))?; // TODO ITA DIFFERENCE
-        state.serialize_field("type", &(self.event_type as u32))?;
+        state.serialize_field("type", &format!("0x{:08X}", self.event_type as u32))?;
         state.serialize_field("type_name", &self.event_type.format_name())?;
         state.end()
     }
@@ -108,10 +111,7 @@ where
     serializer.serialize_str(&hex::encode(digest))
 }
 
-pub fn serialize_json_string_vec<S>(
-    vec: &Option<Vec<String>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+fn serialize_json_string_vec<S>(vec: &Option<Vec<String>>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -129,7 +129,7 @@ where
     }
 }
 
-impl TryFrom<Vec<u8>> for Eventlog {
+impl TryFrom<Vec<u8>> for CcEventLog {
     type Error = anyhow::Error;
 
     fn try_from(data: Vec<u8>) -> Result<Self> {
@@ -149,29 +149,31 @@ impl TryFrom<Vec<u8>> for Eventlog {
             }
         }
 
-        Ok(Eventlog { log: event_log })
+        Ok(CcEventLog { log: event_log })
     }
 }
 
 fn parse_initial_entry(
     data: &[u8],
-    mut index: &mut usize,
+    index: &mut usize,
     digest_size_map: &mut HashMap<TcgAlgorithm, u16>,
 ) -> Result<()> {
-    utils::read_u32_le(data, &mut index)?;
-    let event_type_num = utils::read_u32_le(data, &mut index)?;
+    utils::read_u32_le(data, index)?;
+    let event_type_num = utils::read_u32_le(data, index)?;
 
     let event_type = TcgEventType::try_from(event_type_num)
         .map_err(|_| anyhow!("Unknown event type detected: {:#x}", event_type_num))?;
 
-    utils::get_next_bytes(data, &mut index, 20)?;
-    let event_data_size = utils::read_u32_le(data, &mut index)?;
+    utils::get_next_bytes(data, index, 20)?;
+    let event_data_size = utils::read_u32_le(data, index)?;
 
     if TcgEventType::EvNoAction == event_type {
-        let digest_data = utils::get_next_bytes(data, &mut index, event_data_size as usize)?;
+        let digest_data = utils::get_next_bytes(data, index, event_data_size as usize)?;
         let actual_size = parse_digest_sizes(digest_data, digest_size_map)?;
         if actual_size != event_data_size as usize {
-            return Err(anyhow!("Unexpected data size consumed for detecting digests"));
+            return Err(anyhow!(
+                "Unexpected data size consumed for detecting digests"
+            ));
         }
     }
 

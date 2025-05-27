@@ -1,16 +1,8 @@
+use crate::parser::DescriptionParser;
+use crate::parser::EventDetails;
 use anyhow::{Error, Result};
-use crate::parser::{DescriptionParser};
 use byteorder::{ByteOrder, LittleEndian};
 pub struct EvBootServicesAppParser;
-use crate::EventDetails;
-use serde::Serialize;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct EventDetail {
-    pub efi_type: u8,
-    pub efi_sub_type: u8,
-    pub data: String,
-}
 
 impl DescriptionParser for EvBootServicesAppParser {
     fn parse_description(&self, data: Vec<u8>) -> Result<EventDetails, Error> {
@@ -37,22 +29,23 @@ impl DescriptionParser for EvBootServicesAppParser {
     }
 }
 
-fn get_nested_data(device_path_bytes: &[u8], mut result: EventDetails) -> Result<EventDetails, Error> {
+fn get_nested_data(
+    device_path_bytes: &[u8],
+    mut result: EventDetails,
+) -> Result<EventDetails, Error> {
     let efi_type = device_path_bytes[0];
     let efi_sub_type = device_path_bytes[1];
-    let efi_length = u16::from_le_bytes(device_path_bytes[2..4].try_into().unwrap());
+    let efi_length = u16::from_le_bytes(device_path_bytes[2..4].try_into()?);
     let vendor_data_raw = &device_path_bytes[4..efi_length as usize];
 
     let device_path = &device_path_bytes[efi_length as usize..];
 
     let vendor_data = recover_string(vendor_data_raw);
-    let detail = EventDetail {
-        efi_type,
-        efi_sub_type,
-        data: vendor_data.clone(),
-    };
-    let json = serde_json::to_string(&detail)?;
-    result.data.get_or_insert_with(Vec::new).push(json);
+    let pretty = print_path(efi_type, efi_sub_type, vendor_data.clone());
+    result
+        .device_paths
+        .get_or_insert_with(Vec::new)
+        .push(pretty);
     result.unicode_name = Some(vendor_data.clone());
     result.unicode_name_length = Some(vendor_data.len() as u64);
 
@@ -62,6 +55,18 @@ fn get_nested_data(device_path_bytes: &[u8], mut result: EventDetails) -> Result
     }
 
     get_nested_data(device_path, result)
+}
+
+fn print_path(efi_type: u8, efi_sub_type: u8, vendor_data: String) -> String {
+    if efi_type == 1 && efi_sub_type == 1 {
+        let result = hex::decode(vendor_data).unwrap();
+        return format!("Pci({},{})", result[0], result[1]);
+    }
+    if efi_type == 4 && efi_sub_type == 4 {
+        return format!("File({})", vendor_data);
+    }
+
+    format!("Path({},{},{})", efi_type, efi_sub_type, vendor_data)
 }
 
 fn recover_string(vendor_data_raw: &[u8]) -> String {
@@ -78,7 +83,7 @@ fn recover_string(vendor_data_raw: &[u8]) -> String {
     String::from_utf16(&device_path).expect("Could not convert data to string")
 }
 
-pub fn is_utf16_encoded_text(data: &[u8]) -> bool {
+fn is_utf16_encoded_text(data: &[u8]) -> bool {
     if data.len() < 2 || data.len() % 2 != 0 {
         return false;
     }
