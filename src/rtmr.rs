@@ -17,9 +17,8 @@ pub struct Rtmr {
 
 impl Rtmr {
     pub fn integrity_check(&self, rtmr_from_quote: [Vec<u8>; 4]) -> Result<()> {
-        for index in 0..CHECK_RTMR_LIMIT {
+        for (index, quote_value) in rtmr_from_quote.iter().enumerate().take(CHECK_RTMR_LIMIT) {
             let ccel_value = &self.data[index];
-            let quote_value = &rtmr_from_quote[index];
             if ccel_value != quote_value {
                 bail!(
                     "CCEL eventlog does not pass RTMR [{}] check. CCEL value: {}, Quote value: {}",

@@ -1,7 +1,8 @@
 use crate::parser::DescriptionParser;
 use crate::parser::EventDetails;
+use crate::utils;
 use anyhow::{Error, Result};
-use byteorder::{ByteOrder, LittleEndian};
+
 pub struct EvBootServicesAppParser;
 
 impl DescriptionParser for EvBootServicesAppParser {
@@ -40,7 +41,7 @@ fn get_nested_data(
 
     let device_path = &device_path_bytes[efi_length as usize..];
 
-    let vendor_data = recover_string(vendor_data_raw);
+    let vendor_data = utils::recover_string(vendor_data_raw);
     let pretty = print_path(efi_type, efi_sub_type, vendor_data.clone());
     result
         .device_paths
@@ -67,42 +68,4 @@ fn print_path(efi_type: u8, efi_sub_type: u8, vendor_data: String) -> String {
     }
 
     format!("Path({},{},{})", efi_type, efi_sub_type, vendor_data)
-}
-
-fn recover_string(vendor_data_raw: &[u8]) -> String {
-    if !is_utf16_encoded_text(vendor_data_raw) {
-        return hex::encode(vendor_data_raw);
-    };
-
-    let device_path: Vec<u16> = vendor_data_raw
-        .chunks(2)
-        .map(LittleEndian::read_u16)
-        .take_while(|&x| x != 0)
-        .collect();
-
-    String::from_utf16(&device_path).expect("Could not convert data to string")
-}
-
-fn is_utf16_encoded_text(data: &[u8]) -> bool {
-    if data.len() < 2 || data.len() % 2 != 0 {
-        return false;
-    }
-
-    let utf16: Vec<u16> = data
-        .chunks(2)
-        .map(LittleEndian::read_u16)
-        .take_while(|&x| x != 0)
-        .collect();
-
-    if let Ok(decoded) = String::from_utf16(&utf16) {
-        let printable_chars = decoded
-            .chars()
-            .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
-            .count();
-
-        let ratio = printable_chars as f32 / decoded.len().max(1) as f32;
-        return ratio > 0.9;
-    }
-
-    false
 }

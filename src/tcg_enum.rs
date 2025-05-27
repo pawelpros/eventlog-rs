@@ -133,7 +133,7 @@ impl TcgEventType {
             Self::EvEventTag => Box::new(EvEventTagParser),
             Self::EvPlatformConfigFlags => Box::new(EvPlatformConfigFlagsParser),
             Self::EvCompactHash => Box::new(EvSimpleParser),
-            Self::EvIpl => Box::new(EvSimpleParser),
+            Self::EvIpl => Box::new(EvIplParser),
             Self::EvOmitBootDeviceEvents => Box::new(EvSimpleParser),
             Self::EvEfiVariableDriverConfig => Box::new(EvEfiVariableParser),
             Self::EvEfiVariableBoot => Box::new(EvEfiVariableParser),

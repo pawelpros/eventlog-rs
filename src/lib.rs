@@ -205,8 +205,8 @@ fn parse_eventlog_entry(
     let event_desc_raw = data[index..(index + event_desc_size as usize)].to_vec();
     index += event_desc_size as usize;
 
-    let event = STANDARD.encode(&event_desc_raw); // TODO USE THIS ONE
-    // let event = hex::encode(&event_desc_raw);
+    // let event = STANDARD.encode(&event_desc_raw); // TODO USE THIS ONE
+    let event = hex::encode(&event_desc_raw);
     let event_result = event_type.get_parser().parse_description(event_desc_raw)?;
 
     Ok((
