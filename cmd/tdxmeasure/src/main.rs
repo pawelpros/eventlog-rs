@@ -9,15 +9,15 @@ fn main() {
         .filter(None, log::LevelFilter::Info)
         .init();
 
-    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_ovmf".to_string());
-    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data_grub".to_string());
-    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/CCEL_data".to_string());
-    from_file("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/ccel_test2.bin".to_string());
+    from_file("cmd/tdxmeasure/CCEL_data_ovmf".to_string());
+    from_file("cmd/tdxmeasure/CCEL_data_grub".to_string());
+    from_file("cmd/tdxmeasure/CCEL_data".to_string());
+    from_file("cmd/tdxmeasure/ccel_test2.bin".to_string());
 
-    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel.b64".to_string());
-    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel_250527.b64".to_string());
-    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gcp_ccel.b64".to_string());
-    from_base64("/home/pproskur/workspace/coco/eventlog-rs/cmd/tdxmeasure/gke_ccel_14052025.b64".to_string());
+    from_base64("cmd/tdxmeasure/gke_ccel.b64".to_string());
+    from_base64("cmd/tdxmeasure/gke_ccel_250527.b64".to_string());
+    from_base64("cmd/tdxmeasure/gcp_ccel.b64".to_string());
+    from_base64("cmd/tdxmeasure/gke_ccel_14052025.b64".to_string());
 }
 
 fn from_base64(path: String) {
@@ -27,7 +27,7 @@ fn from_base64(path: String) {
     let evidence = STANDARD.decode(&data).unwrap();
 
     let event_log = eventlog_rs::CcEventLog::try_from(evidence).unwrap();
-    let rtmrs = Rtmr::try_from(event_log.clone()).unwrap();
+    let _rtmrs = Rtmr::try_from(event_log.clone()).unwrap();
 
     let json = serde_json::to_string_pretty(&event_log).unwrap();
     println!("{}", json);
@@ -39,7 +39,7 @@ fn from_file(path: String) {
     let data = fs::read(path).unwrap();
 
     let event_log = eventlog_rs::CcEventLog::try_from(data).unwrap();
-    let rtmrs = Rtmr::try_from(event_log.clone()).unwrap();
+    let _rtmrs = Rtmr::try_from(event_log.clone()).unwrap();
     let json = serde_json::to_string_pretty(&event_log).unwrap();
     println!("{}", json);
     // println!("{}", rtmrs);
